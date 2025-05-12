@@ -6,9 +6,10 @@
 #include <TFT_eSPI.h>
 #include <HardwareSerial.h>
 #include <Adafruit_NeoPixel.h>
+#include <ESP32Servo.h
 
 #else
-#define GARAGE
+//#define GARAGE
 #ifdef GARAGE
 //NEMA, Ultrasonico, Beeper
 #include <AccelStepper.h>
@@ -17,21 +18,26 @@
 #define STEPPIN 13
 #define DIRPIN 15
 #define ENABLEMOTORPIN 12
+#define BUZZPIN 16
 #else
-#define VENTILATOR
+//#define VENTILATOR
 #ifdef VENTILATOR
   //Hbridge, LED, TEmp, Gyro, Tachometer SErvoCuna
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_NeoPixel.h>
-#include <ESP32Servo.h>
+#include <ESP32Servo.h
 
 #else
 #define TOPFLOOR
 #ifdef TOPFLOOR
   //Infrared Existence Sensor, Photoresistor, SErvoPersianas, Ventilador
 #include <ESP32Servo.h>
+#define MOSFETPIN
+#define IRPIN
+#define LIGHTPIN
+#define SERVOPERSIANAS
 
 #else
   #define SENDER
@@ -121,8 +127,10 @@ gateStruct GateData;
 AccelStepper StepperMotor(1,STEPPIN,DIRPIN);
 
 int CurrDistance;
-
-int triggerRead();
+int Timeout;
+int PreviousTime;
+bool BuzzState;
+double triggerRead();
 void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
 void setup(){
   Serial.begin(115200); // Starts the serial communication
@@ -134,26 +142,39 @@ void setup(){
     return;
   }
   
-  // Once ESPNow is successfully Init, we will register for recv CB to
+  // Once ESPNow is successfully Init, we will register for recv CallBack to
   // get recv packer info
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
   
   pinMode(TRIGGERPIN, OUTPUT); // Sets the trigPin as an Output
   pinMode(ECHOPIN, INPUT); // Sets the echoPin as an Input
+  
+  pinMode(BUZZPIN, OUTPUT); // Sets the trigPin as an Output
   StepperMotor.setAcceleration(100);
   StepperMotor.setMaxSpeed(1000);
-  
+  BuzzState=true;
 }
 void loop(){
   CurrDistance=triggerRead();
   Serial.print("Distance (CM): ");
   Serial.println(CurrDistance);
-  if(CurrDistance<5){
+  if(CurrDistance<20&&CurrDistance>2){
+    if ((millis() - PreviousTime) > 200){
+      
+      digitalWrite(BUZZPIN, BuzzState);
+      BuzzState= !BuzzState;
+      PreviousTime=millis();
+    }
+  }else {
+    digitalWrite(BUZZPIN, LOW);
+  }
+  if(CurrDistance<15){
     StepperMotor.moveTo(0);
   }
   StepperMotor.run();
+  delayMicroseconds(100);
 }
-int triggerRead(){
+double triggerRead(){
   // Clears the trigPin
   digitalWrite(TRIGGERPIN, LOW);
   delayMicroseconds(2);
@@ -163,7 +184,8 @@ int triggerRead(){
   digitalWrite(TRIGGERPIN, LOW);
   // Reads the ECHOPIN, returns the sound wave travel time in microseconds
   // Calculating the distance
-  return pulseIn(ECHOPIN, HIGH) * 0.034 / 2;//Divide the Echo due to being There and Back Distance(Ignores Dopple Effect)
+  return pulseIn(ECHOPIN, HIGH) * 0.034/ 2;//Divide the Echo due to being There and Back Distance(Ignores Dopple Effect)
+  
   // Prints the distance on the Serial Monitor
 }
 
