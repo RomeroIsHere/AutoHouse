@@ -1,3 +1,16 @@
 {
-    "git.enabled": true
+    "git.enabled": true,
+    "files.associations": {
+        "*.h": "c",
+        "*.end": "crow",
+        "optional": "cpp",
+        "fstream": "cpp",
+        "functional": "cpp",
+        "iomanip": "cpp",
+        "istream": "cpp",
+        "ostream": "cpp",
+        "sstream": "cpp",
+        "streambuf": "cpp",
+        "type_traits": "cpp"
+    }
 }
