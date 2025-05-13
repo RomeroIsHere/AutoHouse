@@ -28,16 +28,19 @@
 #include <Adafruit_BME280.h>
 #include <Adafruit_NeoPixel.h>
 #include <ESP32Servo.h
+#define SCL 22
+#define SDA 21
+#define TACHOPIN 34
 
 #else
 #define TOPFLOOR
 #ifdef TOPFLOOR
   //Infrared Existence Sensor, Photoresistor, SErvoPersianas, Ventilador
 #include <ESP32Servo.h>
-#define MOSFETPIN
-#define IRPIN
-#define LIGHTPIN
-#define SERVOPERSIANAS
+#define MOSFETPIN 14
+#define IRPIN 36 //VP
+#define LIGHTPIN 39 //VN
+#define SERVOPERSIANAS 13
 
 #else
   #define SENDER
@@ -201,6 +204,72 @@ void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
 #elif defined VENTILATOR
 
 #elif defined TOPFLOOR
+
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+typedef struct fasnStruct {
+  bool Open;
+} fasnStruct;
+
+fasnStruct FanData;
+
+Servo Sever;
+int IRNow, IRBefore;
+int LIGHTNow, LIGHTBefore;
+void poll();
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+
+
+void setup(){
+Serial.begin(115200); // Starts the serial communication
+  WiFi.mode(WIFI_STA);
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
+  
+  Sever.attach(SERVOPERSIANAS);
+  pinMode(LIGHTPIN,INPUT);
+  pinMode(IRPIN,INPUT);
+  pinMode(MOSFETPIN,OUTPUT);
+}
+
+void loop(){
+  poll();
+  if((IRBefore^IRNow)&&IRNow){
+    //JustPressed IR
+  }
+  if((LIGHTBefore^LIGHTNow)){
+    if(LIGHTNow){
+      //JustPressed LIght
+      Sever.write(170);
+    }else{
+      //JustUnpressed LIght
+      Sever.write(10);
+    }
+    
+  }
+
+}
+
+void poll(){
+  IRBefore=IRNow;
+  LIGHTBefore=LIGHTNow;
+  IRNow=digitalRead(IRPIN);
+  LIGHTNow=digitalRead(LIGHTPIN);
+}
+
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&FanData, incomingData, sizeof(FanData));
+  Serial.print("Bytes received: ");
+  Serial.println(len);
+  Serial.print("x: ");
+  Serial.println(FanData.Open);
+  digitalWrite(MOSFETPIN,FanData.Open);
+}
+
 
 #endif
 
