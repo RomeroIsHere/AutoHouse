@@ -3,45 +3,61 @@
 //#define SCREEN 
 #ifdef SCREEN
 //The One with a Screen, GSM, LED Strip and IrMovement Detector
+#include <SPI.h>
+
 #include <TFT_eSPI.h>
 #include <HardwareSerial.h>
 #include <Adafruit_NeoPixel.h>
-#include <ESP32Servo.h
+#include <ESP32Servo.h>
+#define RX
+#define TX 
+#define NEOPIN
+#define MOVEMENTSENSOR
+#define SERVOPIN 
+#define XPT2046_IRQ 36   // T_IRQ
+#define XPT2046_MOSI 32  // T_DIN
+#define XPT2046_MISO 39  // T_OUT
+#define XPT2046_CLK 25   // T_CLK
+#define XPT2046_CS 33    // T_CS
 
 #else
 //#define GARAGE
 #ifdef GARAGE
 //NEMA, Ultrasonico, Beeper
 #include <AccelStepper.h>
-#define TRIGGERPIN 2
-#define ECHOPIN 4
-#define STEPPIN 13
+#define TRIGGERPIN 33
+#define ECHOPIN 25
+#define STEPPIN 27
 #define DIRPIN 15
-#define ENABLEMOTORPIN 12
-#define BUZZPIN 16
+#define ENABLEMOTORPIN 26
+#define BUZZPIN 14
 #else
-//#define VENTILATOR
+#define VENTILATOR
 #ifdef VENTILATOR
-  //Hbridge, LED, TEmp, Gyro, Tachometer SErvoCuna
+  //Hbridge, LED, TEmp, Gyro, Tachometer, Fan, SErvoCuna
+#include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_NeoPixel.h>
-#include <ESP32Servo.h
+#include <ESP32Servo.h>
 #define SCL 22
 #define SDA 21
-#define TACHOPIN 34
+#define SERVOPIN 18
+#define TACHOPIN 19
+#define MOSFETPIN 23
+//Infrared Existence Sensor, Photoresistor, SErvoPersianas
 
-#else
-#define TOPFLOOR
-#ifdef TOPFLOOR
-  //Infrared Existence Sensor, Photoresistor, SErvoPersianas, Ventilador
-#include <ESP32Servo.h>
-#define MOSFETPIN 14
 #define IRPIN 36 //VP
 #define LIGHTPIN 39 //VN
 #define SERVOPERSIANAS 13
 
+
+
+#else
+#define TOPFLOOR
+#ifdef TOPFLOOR
+  
 #else
   #define SENDER
     #ifdef SENDER
@@ -63,6 +79,17 @@
 typedef struct gateStruct {
   bool Open;
 } gateStruct;
+
+SPIClass touchscreenSPI = SPIClass(SPI);
+XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+
+
+void setup(){
+
+}
+void loop(){
+
+}
 /*
 esp_now_peer_info_t peerInfo;
 
@@ -159,12 +186,16 @@ void setup(){
 }
 void loop(){
   CurrDistance=triggerRead();
+  triggerRead();
   Serial.print("Distance (CM): ");
   Serial.println(CurrDistance);
   if(CurrDistance<20&&CurrDistance>2){
     if ((millis() - PreviousTime) > 200){
       
       digitalWrite(BUZZPIN, BuzzState);
+      Serial.print("Buzz:");
+      Serial.println(BuzzState);
+      
       BuzzState= !BuzzState;
       PreviousTime=millis();
     }
@@ -175,7 +206,6 @@ void loop(){
     StepperMotor.moveTo(0);
   }
   StepperMotor.run();
-  delayMicroseconds(100);
 }
 double triggerRead(){
   // Clears the trigPin
@@ -202,6 +232,88 @@ void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 #elif defined VENTILATOR
+
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+typedef struct fasnStruct {
+  bool Open;
+} fasnStruct;
+
+fasnStruct FanData;
+double Frequency;
+Servo Sever;
+Adafruit_BME280 bme;
+Adafruit_MPU6050 mpu;
+bool i2cGyro, i2ctemper;
+int PreviousTime;
+volatile int Count;
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+void CountTacho();
+
+void setup(){
+Serial.begin(115200); // Starts the serial communication
+  WiFi.mode(WIFI_STA);
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  Wire.begin();
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
+  
+  Sever.attach(SERVOPIN);
+  i2cGyro=mpu.begin();
+  if (!i2cGyro) {
+    Serial.println("Sensor init failed");
+  }else{
+  Serial.println("Found a MPU-6050 sensor");
+  }
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  i2ctemper=bme.begin(0x76);
+  if (!i2ctemper) {
+    Serial.println("Could not find a valid BME280 sensor, check wiring!");
+  }else{
+    Serial.println("Found BME280");
+  }
+  
+}
+
+void loop(){
+  if(i2ctemper){
+      int temperature=bme.readTemperature();
+  }
+  if(i2cGyro){
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+      int y=map(a.acceleration.y,-10,10,0,20);
+      int x=map(a.acceleration.x,-10,10,0,20);
+    }
+  if ((millis() - PreviousTime) > 200){
+    int StartTime=millis();
+    attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v
+    while(Count!=-1);
+    StartTime=millis()-StartTime;
+    Frequency=1000.0/StartTime;
+    PreviousTime=millis();
+  }
+}
+
+void IRAM_ATTR CountTacho(){
+  Count++;
+  if(Count>=2){
+    detachInterrupt(TACHOPIN);
+    Count=-1;
+  }
+}
+
+void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&FanData, incomingData, sizeof(FanData));
+  Serial.print("Bytes received: ");
+  Serial.println(len);
+  Serial.print("x: ");
+  Serial.println(FanData.Open);
+  digitalWrite(MOSFETPIN,FanData.Open);
+}
 
 #elif defined TOPFLOOR
 
