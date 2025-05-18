@@ -1,74 +1,57 @@
 #include <Arduino.h>
-
 //#define SCREEN 
 #ifdef SCREEN
-//The One with a Screen, GSM, LED Strip and IrMovement Detector
-#include <SPI.h>
+  //The One with a Screen, GSM, LED Strip and IrMovement Detector
+  #include <SPI.h>
 
-#include <TFT_eSPI.h>
-#include <HardwareSerial.h>
-#include <Adafruit_NeoPixel.h>
-#include <ESP32Servo.h>
-#define RX
-#define TX 
-#define NEOPIN
-#define MOVEMENTSENSOR
-#define SERVOPIN 
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
+  #include <TFT_eSPI.h>
+  #include <HardwareSerial.h>
+  #include <Adafruit_NeoPixel.h>
+  #include <ESP32Servo.h>
+  #define RX
+  #define TX 
+  #define NEOPIN
+  #define MOVEMENTSENSOR
+  #define DOORSERVOPIN 
+  #define XPT2046_IRQ 36   // T_IRQ
+  #define XPT2046_MOSI 32  // T_DIN
+  #define XPT2046_MISO 39  // T_OUT
+  #define XPT2046_CLK 25   // T_CLK
+  #define XPT2046_CS 33    // T_CS
 
 #else
 //#define GARAGE
-#ifdef GARAGE
-//NEMA, Ultrasonico, Beeper
-#include <AccelStepper.h>
-#define TRIGGERPIN 33
-#define ECHOPIN 25
-#define STEPPIN 27
-#define DIRPIN 15
-#define ENABLEMOTORPIN 26
-#define BUZZPIN 14
-#else
-#define VENTILATOR
-#ifdef VENTILATOR
-  //Hbridge, LED, TEmp, Gyro, Tachometer, Fan, SErvoCuna
-#include <Wire.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
-#include <Adafruit_NeoPixel.h>
-#include <ESP32Servo.h>
-#define SCL 22
-#define SDA 21
-#define SERVOPIN 18
-#define TACHOPIN 19
-#define MOSFETPIN 23
-//Infrared Existence Sensor, Photoresistor, SErvoPersianas
+  #ifdef GARAGE
+    //NEMA, Ultrasonico, Beeper
+    #include <AccelStepper.h>
+    #define TRIGGERPIN 33
+    #define ECHOPIN 25
+    #define STEPPIN 27
+    #define DIRPIN 15
+    #define ENABLEMOTORPIN 26
+    #define BUZZPIN 14
+  #else
+    #define VENTILATOR
+    #ifdef VENTILATOR
+      //Hbridge, LED, TEmp, Gyro, Tachometer, Fan, SErvoCuna
+    #include <Wire.h>
+    #include <Adafruit_MPU6050.h>
+    #include <Adafruit_Sensor.h>
+    #include <Adafruit_BME280.h>
+    #include <Adafruit_NeoPixel.h>
+    #include <ESP32Servo.h>
+    #define SCL 22
+    #define SDA 21
+    #define SERVOCUNAPIN 19
+    #define TACHOPIN 18
+    #define MOSFETPIN 23
+    //Infrared Existence Sensor, Photoresistor, SErvoPersianas
 
-#define IRPIN 36 //VP
-#define LIGHTPIN 39 //VN
-#define SERVOPERSIANAS 13
-
-
-
-#else
-#define TOPFLOOR
-#ifdef TOPFLOOR
-  
-#else
-  #define SENDER
-    #ifdef SENDER
-
-    #else
-    #define RECEIVER
-
+    #define IRPIN 36 //VP
+    #define LIGHTPIN 39 //VN
+    #define SERVOPERSIANASPIN 13
     #endif
-#endif
-#endif
-#endif
+  #endif
 #endif
 
 #include <WiFi.h>
@@ -149,106 +132,113 @@ void loop() {
 
 #elif defined GARAGE
 
-typedef struct gateStruct {
-  bool Open;
-} gateStruct;
+  typedef struct gateStruct {
+    bool Open;
+  } gateStruct;
 
-gateStruct GateData;
-AccelStepper StepperMotor(1,STEPPIN,DIRPIN);
+  gateStruct GateData;
+  AccelStepper StepperMotor(1,STEPPIN,DIRPIN);
 
-int CurrDistance;
-int Timeout;
-int PreviousTime;
-bool BuzzState;
-double triggerRead();
-void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
-void setup(){
-  Serial.begin(115200); // Starts the serial communication
-  WiFi.mode(WIFI_STA);
+  int CurrDistance;
+  int Timeout;
+  int PreviousTime;
+  bool BuzzState;
+  double triggerRead();
+  void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+  void setup(){
+    Serial.begin(115200); // Starts the serial communication
+    WiFi.mode(WIFI_STA);
 
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-  
-  // Once ESPNow is successfully Init, we will register for recv CallBack to
-  // get recv packer info
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
-  
-  pinMode(TRIGGERPIN, OUTPUT); // Sets the trigPin as an Output
-  pinMode(ECHOPIN, INPUT); // Sets the echoPin as an Input
-  
-  pinMode(BUZZPIN, OUTPUT); // Sets the trigPin as an Output
-  StepperMotor.setAcceleration(100);
-  StepperMotor.setMaxSpeed(1000);
-  BuzzState=true;
-}
-void loop(){
-  CurrDistance=triggerRead();
-  triggerRead();
-  Serial.print("Distance (CM): ");
-  Serial.println(CurrDistance);
-  if(CurrDistance<20&&CurrDistance>2){
-    if ((millis() - PreviousTime) > 200){
-      
-      digitalWrite(BUZZPIN, BuzzState);
-      Serial.print("Buzz:");
-      Serial.println(BuzzState);
-      
-      BuzzState= !BuzzState;
-      PreviousTime=millis();
+    // Init ESP-NOW
+    if (esp_now_init() != ESP_OK) {
+      Serial.println("Error initializing ESP-NOW");
+      return;
     }
-  }else {
-    digitalWrite(BUZZPIN, LOW);
+    
+    // Once ESPNow is successfully Init, we will register for recv CallBack to
+    // get recv packer info
+    esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
+    
+    pinMode(TRIGGERPIN, OUTPUT); // Sets the trigPin as an Output
+    pinMode(ECHOPIN, INPUT); // Sets the echoPin as an Input
+    
+    pinMode(BUZZPIN, OUTPUT); // Sets the trigPin as an Output
+    StepperMotor.setAcceleration(100);
+    StepperMotor.setMaxSpeed(1000);
+    BuzzState=true;
   }
-  if(CurrDistance<15){
-    StepperMotor.moveTo(0);
+  void loop(){
+    CurrDistance=triggerRead();
+    triggerRead();
+    Serial.print("Distance (CM): ");
+    Serial.println(CurrDistance);
+    if(CurrDistance<20&&CurrDistance>2){
+      if ((millis() - PreviousTime) > 200){
+        
+        digitalWrite(BUZZPIN, BuzzState);
+        Serial.print("Buzz:");
+        Serial.println(BuzzState);
+        
+        BuzzState= !BuzzState;
+        PreviousTime=millis();
+      }
+    }else {
+      digitalWrite(BUZZPIN, LOW);
+    }
+    if(CurrDistance<15){
+      StepperMotor.moveTo(0);
+    }
+    StepperMotor.run();
   }
-  StepperMotor.run();
-}
-double triggerRead(){
-  // Clears the trigPin
-  digitalWrite(TRIGGERPIN, LOW);
-  delayMicroseconds(2);
-  // Sets the trigPin on HIGH state for 10 micro seconds
-  digitalWrite(TRIGGERPIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIGGERPIN, LOW);
-  // Reads the ECHOPIN, returns the sound wave travel time in microseconds
-  // Calculating the distance
-  return pulseIn(ECHOPIN, HIGH) * 0.034/ 2;//Divide the Echo due to being There and Back Distance(Ignores Dopple Effect)
-  
-  // Prints the distance on the Serial Monitor
-}
+  double triggerRead(){
+    // Clears the trigPin
+    digitalWrite(TRIGGERPIN, LOW);
+    delayMicroseconds(2);
+    // Sets the trigPin on HIGH state for 10 micro seconds
+    digitalWrite(TRIGGERPIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIGGERPIN, LOW);
+    // Reads the ECHOPIN, returns the sound wave travel time in microseconds
+    // Calculating the distance
+    return pulseIn(ECHOPIN, HIGH) * 0.034/ 2;//Divide the Echo due to being There and Back Distance(Ignores Dopple Effect)
+    
+    // Prints the distance on the Serial Monitor
+  }
 
-void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  memcpy(&GateData, incomingData, sizeof(GateData));
-  Serial.print("Bytes received: ");
-  Serial.println(len);
-  Serial.print("x: ");
-  Serial.println(GateData.Open);
-  StepperMotor.moveTo(GateData.Open?100:0);
-}
+  void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
+    memcpy(&GateData, incomingData, sizeof(GateData));
+    Serial.print("Bytes received: ");
+    Serial.println(len);
+    Serial.print("x: ");
+    Serial.println(GateData.Open);
+    StepperMotor.moveTo(GateData.Open?100:0);
+  }
 
 #elif defined VENTILATOR
 
 void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+
 typedef struct fasnStruct {
   bool Open;
 } fasnStruct;
 
 fasnStruct FanData;
 double Frequency;
-Servo Sever;
+Servo SeverCuna,SeverCortina;
 Adafruit_BME280 bme;
 Adafruit_MPU6050 mpu;
 bool i2cGyro, i2ctemper;
 int PreviousTime;
 volatile int Count;
 void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
-void CountTacho();
 
+/*Interrupts*/
+void CountTacho();
+void LightFalls();
+void LightRise();
+void IRRise();
+void IRFall();
+/*Logic Code */
 void setup(){
 Serial.begin(115200); // Starts the serial communication
   WiFi.mode(WIFI_STA);
@@ -260,8 +250,8 @@ Serial.begin(115200); // Starts the serial communication
   }
   Wire.begin();
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
-  
-  Sever.attach(SERVOPIN);
+  SeverCuna.attach(SERVOCUNAPIN);
+  SeverCortina.attach(SERVOPERSIANASPIN);
   i2cGyro=mpu.begin();
   if (!i2cGyro) {
     Serial.println("Sensor init failed");
@@ -275,23 +265,41 @@ Serial.begin(115200); // Starts the serial communication
   }else{
     Serial.println("Found BME280");
   }
+  pinMode(MOSFETPIN,OUTPUT);
+  pinMode(IRPIN,INPUT);
+  pinMode(LIGHTPIN,INPUT);
   
+  pinMode(TACHOPIN, INPUT_PULLUP);
+  attachInterrupt(IRPIN,IRRise,RISING);
+  attachInterrupt(IRPIN,IRFall,FALLING);
+  attachInterrupt(LIGHTPIN,LightRise,RISING);
+  attachInterrupt(LIGHTPIN,LightFalls,FALLING);
+
 }
 
 void loop(){
   if(i2ctemper){
-      int temperature=bme.readTemperature();
+      //int temperature=bme.readTemperature();
+    digitalWrite(MOSFETPIN,bme.readTemperature()>30);//Change Depending on High-Low Activation, or P-N Gate  
+  }else{
+    digitalWrite(MOSFETPIN,HIGH);
   }
+
   if(i2cGyro){
       sensors_event_t a, g, temp;
       mpu.getEvent(&a, &g, &temp);
-      int y=map(a.acceleration.y,-10,10,0,20);
-      int x=map(a.acceleration.x,-10,10,0,20);
+      int y=map(a.acceleration.y,0,10,0,70);
+      int x=map(a.acceleration.x,0,10,0,70);
+      int z=map(a.acceleration.z,0,10,0,70);
+      SeverCuna.write(10+x+y+z);
+    }else{
+      SeverCuna.write(90);
     }
+  
   if ((millis() - PreviousTime) > 200){
     int StartTime=millis();
-    attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v
-    while(Count!=-1);
+    attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v or pullup Input
+    while(Count!=-1);//block
     StartTime=millis()-StartTime;
     Frequency=1000.0/StartTime;
     PreviousTime=millis();
@@ -306,6 +314,21 @@ void IRAM_ATTR CountTacho(){
   }
 }
 
+void IRAM_ATTR LightFalls(){
+  SeverCortina.write(10);
+}
+
+void IRAM_ATTR LightRise(){
+  SeverCortina.write(170);
+}
+
+void IRAM_ATTR IRRise(){
+  
+}
+
+void IRAM_ATTR IRFall(){
+  
+}
 void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&FanData, incomingData, sizeof(FanData));
   Serial.print("Bytes received: ");
