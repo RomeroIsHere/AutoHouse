@@ -630,7 +630,14 @@ void loop() {
       attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v or pullup Input
       while(Count!=-1);//block
       StartTime=millis()-StartTime;
-      Frequency=1000.0/StartTime;
+      FanData.Frequency=1000.0/StartTime;
+      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &FanData, sizeof(FanData));
+      if (result == ESP_OK) {
+        Serial.println("Sent with success");
+      }
+      else {
+        Serial.println("Error sending the data");
+      }
       PreviousTime=millis();
     }
   }
