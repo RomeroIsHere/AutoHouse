@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#define SCREEN 
+//#define SCREEN 
 #ifdef SCREEN
   //The One with a Screen, GSM, LED Strip and IrMovement Detector
   #include <SPI.h>
@@ -522,7 +522,10 @@ void loop() {
   }
 
 #elif defined VENTILATOR
-
+  uint8_t broadcastAddress[] = //{0x8C, 0x4F, 0x00, 0x28, 0x92, 0x64};//8C:4F:00:28:92:64 Microusb
+  {0x88, 0x13, 0xBF, 0x68, 0xB3, 0xD4};
+  esp_now_peer_info_t peerInfo;
+  
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
 
   typedef struct fasnStruct {
@@ -555,8 +558,27 @@ void loop() {
       Serial.println("Error initializing ESP-NOW");
       return;
     }
-    Wire.begin();
+
+    if (esp_now_init() != ESP_OK) {
+      Serial.println("Error initializing ESP-NOW");
+      return;
+    }
+    
+    
+    // Register peer
+    memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+    peerInfo.channel = 0;  
+    peerInfo.encrypt = false;
+    
+    // Add peer        
+    if (esp_now_add_peer(&peerInfo) != ESP_OK){
+      Serial.println("Failed to add peer");
+    }
+    esp_now_register_send_cb(OnDataSent);
     esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
+
+    Wire.begin();
+    
     SeverCuna.attach(SERVOCUNAPIN);
     SeverCortina.attach(SERVOPERSIANASPIN);
     i2cGyro=mpu.begin();
@@ -649,74 +671,6 @@ void loop() {
     Serial.print("\r\nLast Packet Send Status:\t");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
   }
-
-  #elif defined TOPFLOOR
-
-  void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
-  typedef struct fasnStruct {
-    bool Open;
-  } fasnStruct;
-
-  fasnStruct FanData;
-
-  Servo Sever;
-  int IRNow, IRBefore;
-  int LIGHTNow, LIGHTBefore;
-  void poll();
-  void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
-
-
-  void setup(){
-  Serial.begin(115200); // Starts the serial communication
-    WiFi.mode(WIFI_STA);
-
-    // Init ESP-NOW
-    if (esp_now_init() != ESP_OK) {
-      Serial.println("Error initializing ESP-NOW");
-      return;
-    }
-    esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
-    
-    Sever.attach(SERVOPERSIANAS);
-    pinMode(LIGHTPIN,INPUT);
-    pinMode(IRPIN,INPUT);
-    pinMode(MOSFETPIN,OUTPUT);
-  }
-
-  void loop(){
-    poll();
-    if((IRBefore^IRNow)&&IRNow){
-      //JustPressed IR
-    }
-    if((LIGHTBefore^LIGHTNow)){
-      if(LIGHTNow){
-        //JustPressed LIght
-        Sever.write(170);
-      }else{
-        //JustUnpressed LIght
-        Sever.write(10);
-      }
-      
-    }
-
-  }
-
-  void poll(){
-    IRBefore=IRNow;
-    LIGHTBefore=LIGHTNow;
-    IRNow=digitalRead(IRPIN);
-    LIGHTNow=digitalRead(LIGHTPIN);
-  }
-
-  void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
-    memcpy(&FanData, incomingData, sizeof(FanData));
-    Serial.print("Bytes received: ");
-    Serial.println(len);
-    Serial.print("x: ");
-    Serial.println(FanData.Open);
-    digitalWrite(MOSFETPIN,FanData.Open);
-  }
-
 
 #endif
 
