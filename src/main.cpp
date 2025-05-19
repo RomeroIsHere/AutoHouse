@@ -1,9 +1,8 @@
 #include <Arduino.h>
-#define SCREEN 
+//#define SCREEN 
 #ifdef SCREEN
   //The One with a Screen, GSM, LED Strip and IrMovement Detector
   #include <SPI.h>
-
   #include <TFT_eSPI.h>
   #include <HardwareSerial.h>
   #include <Adafruit_NeoPixel.h>
@@ -11,13 +10,8 @@
   #define RX 26
   #define TX 27
   #define NEOPIN 16
-  #define MOVEMENTSENSOR 15
+  #define MOVEMENTSENSOR 39
   #define DOORSERVOPIN 13
-  #define XPT2046_IRQ 36   // T_IRQ
-  #define XPT2046_MOSI 32  // T_DIN
-  #define XPT2046_MISO 39  // T_OUT
-  #define XPT2046_CLK 25   // T_CLK
-  #define XPT2046_CS 33    // T_CS
   #define TOUCHDOORSWITCH 14
   #define THRESHOLD 30
   /*Screen Definitions*/
@@ -30,12 +24,15 @@
   #ifdef GARAGE
     //NEMA, Ultrasonico, Beeper
     #include <AccelStepper.h>
+    #include <Adafruit_NeoPixel.h>
     #define TRIGGERPIN 33
     #define ECHOPIN 25
     #define STEPPIN 27
     #define DIRPIN 15
     #define ENABLEMOTORPIN 26
     #define BUZZPIN 14
+    #define IRPIN 36 //VP
+    #define NEOPIXELPIN 32
   #else
     #define VENTILATOR
     #ifdef VENTILATOR
@@ -50,11 +47,12 @@
     #define SDA 21
     #define SERVOCUNAPIN 19
     #define TACHOPIN 18
-    #define MOSFETPIN 23
+    #define MOSFETPIN 32
+    #define PWMPIN 5
+    #define NEOPIXELPIN 23
     //Infrared Existence Sensor, Photoresistor, SErvoPersianas
 
-    #define IRPIN 36 //VP
-    #define LIGHTPIN 39 //VN
+    #define LIGHTPIN 36 //VN
     #define SERVOPERSIANASPIN 13
     #endif
   #endif
@@ -118,7 +116,7 @@ esp_now_peer_info_t peerInfo;
 
 uint16_t xTouch, yTouch;
 uint16_t PreviousXTouch, PreviousYTouch;
-bool TouchNow, TouchPrevious, touchedBefore, GarageDoor;
+bool TouchNow, TouchPrevious, touchedBefore, GarageDoor, DetectedMovement;
 
 
 String PasswordInsert="";
@@ -126,7 +124,7 @@ String PasswordInsert="";
 int PreviousTime;
 enum ScreenMode mode;
 void updateSerial();
-void fillPasswordMenu();
+
 bool inBoundingBox(int ah, int aw,int bh,int bw, int x, int y);
 
 void PassWordScreen();
@@ -137,17 +135,23 @@ void PassWordSetup();
 void MonitorSetup();
 void ManualSetup();
 
+void fillPasswordMenu();
+void fillControlMenu();
+void fillMonitorMenu();
+
 void OpenDoor();
 void CloseDoor();
-
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len);
+void MovementRiseInterrupt();
 
+void poll();
 void setup(){
   Serial.begin(115200);
   
   WiFi.mode(WIFI_STA);
   
-  GSMSerial.begin(9600, SERIAL_8N1, RX, TX);
+  /*GSMSerial.begin(9600, SERIAL_8N1, RX, TX);
   Serial.println("Initializing...");
   delay(1000);
   GSMSerial.println("AT"); //Once the handshake test is successful, it will back to OK
@@ -157,10 +161,11 @@ void setup(){
   GSMSerial.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
   updateSerial();
   GSMSerial.println("AT+CREG?"); //Check whether it has registered in the network
-  updateSerial();
-
+  updateSerial();*/
+  Serial.println("Trying to Start ESP-NOW");
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
+    delay(500);
     return;
   }
   
@@ -169,25 +174,30 @@ void setup(){
   memcpy(peerInfo.peer_addr, broadcastAddress, 6);
   peerInfo.channel = 0;  
   peerInfo.encrypt = false;
-  
+  Serial.println("Registered Peer");
   // Add peer        
   if (esp_now_add_peer(&peerInfo) != ESP_OK){
     Serial.println("Failed to add peer");
   }
+  Serial.println("Added Peer");
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
-
+  Serial.println("Setup callbacks");
 
   tft.init();
   tft.setRotation(3);
-  tft.fillScreen(0xFFFF);
+  Serial.println("Initialized Screen");
+  tft.fillScreen(0xF800);
   tft.setTextColor(TFT_BLACK, TFT_WHITE);
+  Serial.println("Filled With Red");
   ws2812=Adafruit_NeoPixel(8, NEOPIN, NEO_GRB + NEO_KHZ800);
   ws2812.begin();
   SeverDoor.attach(DOORSERVOPIN);
   pinMode(MOVEMENTSENSOR,INPUT);
   pinMode(TOUCHDOORSWITCH,INPUT);
+  Serial.println("Input Modes");
   attachInterrupt(MOVEMENTSENSOR,MovementRiseInterrupt,RISING);
+  Serial.println("Attached Rise Interrupt");
   mode=NULLMODE;
   GarageDoor=false;
 }
@@ -195,9 +205,16 @@ void setup(){
 void loop(){
   poll();
   if ((millis() - PreviousTime) > 2000){
-    ws2812.fill(0xFFFF);
+    if(DetectedMovement){
+      ws2812.fill(0xFFFF);
+      DetectedMovement=false;
+    }else{
+      ws2812.fill(0x0);
+    }
+      
     ws2812.show();
     PreviousTime=millis();
+    Serial.println("Called Show");
   }
   switch(mode){
     case PASSWORDMODE:
@@ -210,7 +227,7 @@ void loop(){
       ManualScreen();
     break;
     default:
-    
+    Serial.println("Default Transition");
     PassWordSetup();
     break;
   }
@@ -218,6 +235,7 @@ void loop(){
 void PassWordScreen(){
 
   if(tft.getTouch(&xTouch,&yTouch)){
+
     int ii;
     for(ii=0;ii<12;ii++){
       if(inBoundingBox(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],xTouch,yTouch)){
@@ -228,6 +246,7 @@ void PassWordScreen(){
             //Try the Password
               if(PasswordInsert.equals("159483726")){
                 OpenDoor();
+                Serial.println("Opened Door");
                 MonitorSetup();
               }else{
                 tft.fillScreen(0x1800);
@@ -240,8 +259,10 @@ void PassWordScreen(){
                 delay(100);
                 tft.fillScreen(0xFFFF);
                 delay(100);
+                tft.fillScreen(0xF800);
                 PassWordSetup();
               }
+              Serial.println("Tried Password");
             break;
             case 10:
             //Try the Delete
@@ -250,15 +271,18 @@ void PassWordScreen(){
             }else{
               PasswordInsert.clear();
             }
-              
+              Serial.println("Removed Digit");
             break;
             case 11:
             //Try the Reset
               
               PasswordInsert.clear();
+              Serial.println("Cleared Password");
             break;
             default:
             PasswordInsert.concat(ii+1);
+            Serial.print("Number: ");
+            Serial.println(ii+1);
           }
 
         }
@@ -290,8 +314,7 @@ if(tft.getTouch(&xTouch,&yTouch)){
             case 11:
             //Try the Locking Routine
               
-              
-            CloseDoor();
+            PassWordSetup();
             break;
             default:
             //No Operation;
@@ -338,7 +361,7 @@ if(tft.getTouch(&xTouch,&yTouch)){
             break;
             case 11:
             //Try the Locking Routine
-            CloseDoor();
+            PassWordSetup();
             break;
             default:
             //No Operation;
@@ -359,16 +382,22 @@ if(tft.getTouch(&xTouch,&yTouch)){
 
 void PassWordSetup(){
   mode=PASSWORDMODE;
+  Serial.println("Set Pass Mode");
   fillPasswordMenu();
+  Serial.println("Filled Password Buttons");
   PasswordInsert.clear();
+  Serial.println("Cleared Password");
   CloseDoor();
+  Serial.println("Sent Close Door Signals");
 }
 
 void MonitorSetup(){
+  tft.fillScreen(0xF800);
 mode=MONITORMODE;
   fillMonitorMenu();
 }
 void ManualSetup(){
+  tft.fillScreen(0xF800);
   mode=MANUALCONTROLMODE;
   fillControlMenu();
 }
@@ -392,7 +421,6 @@ void OpenDoor(){
   }
 }
 void CloseDoor(){
-  if(GarageDoor){
     gateData.Open=false;
     
     // Send message via ESP-NOW
@@ -404,9 +432,7 @@ void CloseDoor(){
     else {
       Serial.println("Error sending the data");
     } 
-  }else{
     SeverDoor.write(170);
-  }
 }
 void poll(){
   TouchPrevious=TouchNow;
@@ -416,64 +442,70 @@ void poll(){
   }
 }
 
-void MovementRiseInterrupt(){
-  ws2812.fill(0xFFFF);
-  ws2812.show();
-  PreviousTime=millis();
+void IRAM_ATTR MovementRiseInterrupt(){
+  DetectedMovement=true;
 }
 
 void fillMonitorMenu(){
   int ii;
   ii=9;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-  tft.drawCentreString("CONTROL",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  
   
   ii=11;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);  
+  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);  
+  ii=9;
+  tft.drawCentreString("CONTROL",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
 }
 
 void fillControlMenu(){
   int ii;
   ii=0;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8800);
-  tft.drawCentreString("ON/OFF",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  tft.drawCentreString("ON/OFF",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
   ii=1;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xfdd7);
-  tft.drawCentreString("LOWERSPEED",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  tft.drawCentreString("LOWERSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
   ii=2;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xbff7);
-  tft.drawCentreString("ADDSPEED",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  tft.drawCentreString("ADDSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
 
   ii=9;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-  tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
   
   ii=11;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);  
+  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);  
 }
 
 void fillPasswordMenu(){
+  Serial.println("Called Password Filler");
   for(int ii=0;ii<12;ii++){
-    tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-    if(ii<9){
-      tft.drawNumber(ii+1,  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+    Serial.print("Drawing the ");
+    Serial.print(ii);
+    Serial.println(" Button");
+    tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xFFFF);
+  }
+  if(ii<9){
+      tft.drawNumber(ii+1,  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
     }else{
       switch(ii){
         case 9:
-          tft.drawCentreString("Enter",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+          tft.drawCentreString("Enter",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
         break;
         case 10:
-          tft.drawCentreString("Delete",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+          tft.drawCentreString("Delete",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
         break;
         case 11:
-          tft.drawCentreString("Reset",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);  
+          tft.drawCentreString("Reset",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);  
         break;
         default:
+        break;
       }
     }
-  }
+  Serial.println("Finished Internal Call");
 }
 bool inBoundingBox(int ah, int aw,int bh,int bw, int x, int y){
   return (ah<=x&&aw<=y&&(ah+bh)>=x&&(aw+bw)>=y);
@@ -524,6 +556,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   bool BuzzState;
   double triggerRead();
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
+  
+  void IRRise();
+  void IRFall();
+
   void setup(){
     Serial.begin(115200); // Starts the serial communication
     WiFi.mode(WIFI_STA);
@@ -541,10 +577,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     pinMode(TRIGGERPIN, OUTPUT); // Sets the trigPin as an Output
     pinMode(ECHOPIN, INPUT); // Sets the echoPin as an Input
     
+
     pinMode(BUZZPIN, OUTPUT); // Sets the trigPin as an Output
     StepperMotor.setAcceleration(100);
     StepperMotor.setMaxSpeed(1000);
     BuzzState=true;
+    pinMode(IRPIN, INPUT); // Sets the echoPin as an Input
+    attachInterrupt(IRPIN,IRRise,RISING);
+    attachInterrupt(IRPIN,IRFall,FALLING);
   }
   void loop(){
     CurrDistance=triggerRead();
@@ -584,6 +624,16 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     // Prints the distance on the Serial Monitor
   }
 
+  
+  void IRAM_ATTR IRRise(){
+    ws2812.fill(0x0000);
+    ws2812.show();
+  }
+
+  void IRAM_ATTR IRFall(){
+    ws2812.fill(0xFFFF);
+    ws2812.show();
+  }
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
     memcpy(&GateData, incomingData, sizeof(GateData));
     Serial.print("Bytes received: ");
@@ -612,6 +662,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Adafruit_MPU6050 mpu;
   bool i2cGyro, i2ctemper;
   int PreviousTime;
+  Adafruit_NeoPixel ws2812;
   volatile int Count;
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
   void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
@@ -651,7 +702,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecieved));
 
     Wire.begin();
-    
+    ws2812=Adafruit_NeoPixel(8, NEOPIXELPIN, NEO_GRB + NEO_KHZ800);
+    ws2812.begin();
     SeverCuna.attach(SERVOCUNAPIN);
     SeverCortina.attach(SERVOPERSIANASPIN);
     i2cGyro=mpu.begin();
@@ -668,12 +720,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       Serial.println("Found BME280");
     }
     pinMode(MOSFETPIN,OUTPUT);
-    pinMode(IRPIN,INPUT);
     pinMode(LIGHTPIN,INPUT);
     
     pinMode(TACHOPIN, INPUT_PULLUP);
-    attachInterrupt(IRPIN,IRRise,RISING);
-    attachInterrupt(IRPIN,IRFall,FALLING);
+    
     attachInterrupt(LIGHTPIN,LightRise,RISING);
     attachInterrupt(LIGHTPIN,LightFalls,FALLING);
 
@@ -726,18 +776,24 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
   void IRAM_ATTR LightFalls(){
     SeverCortina.write(10);
+    ws2812.fill(0x0000);
+    ws2812.show();
   }
 
   void IRAM_ATTR LightRise(){
     SeverCortina.write(170);
+    ws2812.fill(0xFFFF);
+    ws2812.show();
   }
 
   void IRAM_ATTR IRRise(){
-    //WHAT?S SUPPOSED TO BE HERE HELP ME
+    ws2812.fill(0x0000);
+    ws2812.show();
   }
 
   void IRAM_ATTR IRFall(){
-    //Just For Shits and Giggles, this will probably go unused
+    ws2812.fill(0xFFFF);
+    ws2812.show();
   }
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
     memcpy(&FanData, incomingData, sizeof(FanData));
