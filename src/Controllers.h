@@ -2,3 +2,60 @@
 #define CONTROLLERS_GUARD
 void nothing();
 #endif
+
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
+#include <ESP32Servo.h>
+
+Servo servo;
+Adafruit_MPU6050 mpu;
+
+const int servoPin = 19;
+int anguloActual = 140;
+int incremento = 3;
+const int minAngulo = 130;
+const int maxAngulo = 150;
+unsigned long intervaloMovimiento = 20;
+unsigned long tiempoAnterior = 0;
+float objetivoX = 9.4;
+float objetivoY = -1.1;
+float objetivoZ = 2.1;
+float tolerancia = 0.3;
+
+void setup() {
+  Serial.begin(115200);
+  if (!mpu.begin()) {
+    Serial.println("Error al iniciar el MPU6050.");
+    while (1);
+  }
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  servo.attach(servoPin);
+  servo.write(anguloActual);
+  Serial.println("Iniciando...");
+}
+
+void loop() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  bool cercaX = abs(a.acceleration.x - objetivoX) <= tolerancia;
+  bool cercaY = abs(a.acceleration.y - objetivoY) <= tolerancia;
+  bool cercaZ = abs(a.acceleration.z - objetivoZ) <= tolerancia;
+
+  if (cercaX && cercaY && cercaZ) {
+    if (millis() - tiempoAnterior >= intervaloMovimiento) {
+      anguloActual += incremento;
+      if (anguloActual <= minAngulo || anguloActual >= maxAngulo) {
+        incremento *= -1;
+      }
+      servo.write(anguloActual);
+      tiempoAnterior = millis();
+    }
+    Serial.print("Movimiento automático. Ángulo: ");
+    Serial.println(anguloActual);
+  } else {
+    Serial.println("Fuera del rango, servo quieto.");
+  }
+}
