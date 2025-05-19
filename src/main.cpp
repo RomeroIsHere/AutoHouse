@@ -1,5 +1,5 @@
 #include <Arduino.h>
-//#define SCREEN 
+#define SCREEN 
 #ifdef SCREEN
   //The One with a Screen, GSM, LED Strip and IrMovement Detector
   #include <SPI.h>
@@ -71,6 +71,7 @@ typedef struct gateStruct {
 
 typedef struct fasnStruct {
   double Frequency;
+  double Temperature;
 } fasnStruct;
 
 enum ScreenMode{
@@ -125,7 +126,7 @@ String PasswordInsert="";
 int PreviousTime;
 enum ScreenMode mode;
 void updateSerial();
-void fillRectMenu();
+void fillPasswordMenu();
 bool inBoundingBox(int ah, int aw,int bh,int bw, int x, int y);
 
 void PassWordScreen();
@@ -208,7 +209,6 @@ void loop(){
     case MANUALCONTROLMODE:
       ManualScreen();
     break;
-
     default:
     
     PassWordSetup();
@@ -245,7 +245,12 @@ void PassWordScreen(){
             break;
             case 10:
             //Try the Delete
+            if(PasswordInsert.length()!=0){
               PasswordInsert=PasswordInsert.substring(0,PasswordInsert.length()-1);
+            }else{
+              PasswordInsert.clear();
+            }
+              
             break;
             case 11:
             //Try the Reset
@@ -270,26 +275,92 @@ void PassWordScreen(){
 }
 
 void MonitorScreen(){
+if(tft.getTouch(&xTouch,&yTouch)){
+    int ii;
+    for(ii=0;ii<12;ii++){
+      if(inBoundingBox(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],xTouch,yTouch)){//Find Quadrant Collided
+        if(!touchedBefore){//NOT the same Collision as Previous Collision
+          //Then We Do the Stuff tied to ii
+          switch(ii){
+            case 9:
+            //Try the Other Mode
+            ManualSetup();         
+            break;
+            case 11:
+            //Try the Locking Routine
+              
+              
+            CloseDoor();
+            break;
+            default:
+            //No Operation;
+            break;
+          }
 
+        }
+        PreviousXTouch=xTouch;
+        PreviousYTouch=yTouch;
+        break;//end since we found the Correct Button Provided
+      }
+    }
+    touchedBefore=true;
+  }else{
+    touchedBefore=false;
+  }
 }
 
 void ManualScreen(){
+if(tft.getTouch(&xTouch,&yTouch)){
+    int ii;
+    for(ii=0;ii<12;ii++){
+      if(inBoundingBox(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],xTouch,yTouch)){//Find Quadrant Collided
+        if(!touchedBefore){//NOT the same Collision as Previous Collision
+          //Then We Do the Stuff tied to ii
+          switch(ii){
+            case 9:
+            //Try the Other Mode
+            ManualSetup();         
+            break;
+            case 11:
+            //Try the Locking Routine
+              
+              
+            CloseDoor();
+            break;
+            default:
+            //No Operation;
+            break;
+          }
 
+        }
+        PreviousXTouch=xTouch;
+        PreviousYTouch=yTouch;
+        break;//end since we found the Correct Button Provided
+      }
+    }
+    touchedBefore=true;
+  }else{
+    touchedBefore=false;
+  }
 }
 
 void PassWordSetup(){
   mode=PASSWORDMODE;
-  fillRectMenu();
+  fillPasswordMenu();
   PasswordInsert.clear();
   CloseDoor();
 }
 
 void MonitorSetup(){
-
+mode=MONITORMODE;
+  fillMonitorMenu();
 }
 void ManualSetup(){
-
+  mode=MANUALCONTROLMODE;
+  fillControlMenu();
 }
+
+
 void OpenDoor(){
   if(GarageDoor){
     gateData.Open=true;
@@ -331,12 +402,36 @@ void poll(){
     GarageDoor=!GarageDoor;
   }
 }
+
 void MovementRiseInterrupt(){
   ws2812.fill(0xFFFF);
   ws2812.show();
   PreviousTime=millis();
 }
-void fillRectMenu(){
+
+void fillMonitorMenu(){
+  int ii;
+  ii=9;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
+  tft.drawCentreString("CONTROL",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  
+  ii=11;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
+  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);  
+}
+
+void fillControlMenu(){
+  int ii;
+  ii=9;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
+  tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  
+  ii=11;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
+  tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);  
+}
+
+void fillPasswordMenu(){
   for(int ii=0;ii<12;ii++){
     tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
     if(ii<9){
@@ -361,6 +456,15 @@ bool inBoundingBox(int ah, int aw,int bh,int bw, int x, int y){
   return (ah<=x&&aw<=y&&(ah+bh)>=x&&(aw+bw)>=y);
 }
 
+void updateSerial(){
+  while (Serial.available()){
+    GSMSerial.write(Serial.read());//Forward what Serial received to Software Serial Port
+  }
+  while(GSMSerial.available()){
+  Serial.write(GSMSerial.read());//Forward what Software Serial received to Serial Port
+  }
+}
+
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   char macStr[18];
   Serial.print("Packet to: ");
@@ -378,64 +482,9 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(len);
   Serial.print("Float: ");
   Serial.println(FanData.Frequency);
+  Serial.print("Float: ");
+  Serial.println(FanData.Temperature);
 }
-
-/*
-esp_now_peer_info_t peerInfo;
-
-// callback when data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
- 
-void setup() {
-  // Init Serial Monitor
-  Serial.begin(115200);
- 
-  // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
-
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-
-  // Once ESPNow is successfully Init, we will register for Send CB to
-  // get the status of Trasnmitted packet
-  esp_now_register_send_cb(OnDataSent);
-  
-  // Register peer
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-  peerInfo.channel = 0;  
-  peerInfo.encrypt = false;
-  
-  // Add peer        
-  if (esp_now_add_peer(&peerInfo) != ESP_OK){
-    Serial.println("Failed to add peer");
-    return;
-  }
-}
- 
-void loop() {
-  // Set values to send
-  strcpy(myData.a, "THIS IS A CHAR");
-  myData.b = random(1,20);
-  myData.c = 1.2;
-  myData.d = false;
-  
-  // Send message via ESP-NOW
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
-   
-  if (result == ESP_OK) {
-    Serial.println("Sent with success");
-  }
-  else {
-    Serial.println("Error sending the data");
-  }
-  delay(2000);
-} */
 
 #elif defined GARAGE
 
@@ -530,6 +579,7 @@ void loop() {
 
   typedef struct fasnStruct {
     double Frequency;
+    double Temperature;
   } fasnStruct;
 
   fasnStruct FanData;
@@ -610,6 +660,7 @@ void loop() {
     if(i2ctemper){
         //int temperature=bme.readTemperature();
       digitalWrite(MOSFETPIN,bme.readTemperature()>30);//Change Depending on High-Low Activation, or P-N Gate  
+      FanData.Temperature=bme.readTemperature();
     }else{
       digitalWrite(MOSFETPIN,HIGH);
     }
