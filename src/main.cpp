@@ -435,6 +435,16 @@ void fillMonitorMenu(){
 
 void fillControlMenu(){
   int ii;
+  ii=0;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8800);
+  tft.drawCentreString("ON/OFF",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  ii=1;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xfdd7);
+  tft.drawCentreString("LOWERSPEED",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+  ii=2;
+  tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xbff7);
+  tft.drawCentreString("ADDSPEED",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
+
   ii=9;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
   tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2])/2, (Coordinates[ii][1]+Coordinates[ii][3])/2, FONT);
