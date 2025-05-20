@@ -686,16 +686,17 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Adafruit_NeoPixel ws2812;
   volatile int Count;
 
-  int anguloActual = 135;
-  int incremento = 5;
-  const int minAngulo = 100;
-  const int maxAngulo = 170;
-  unsigned long intervaloMovimiento = 20;
-  unsigned long tiempoAnterior = 0;
-  float objetivoX = 0.0;
-  float objetivoY = 12.2;
-  float objetivoZ = 17.3;
-  float tolerancia = 0.2;
+int anguloActual = 140;
+int incremento = 15;
+const int minAngulo = 120;
+const int maxAngulo = 160;
+unsigned long intervaloMovimiento = 10;
+unsigned long tiempoAnterior = 0;
+float objetivoX = 8.4;
+float objetivoY = 0.1;
+float objetivoZ = 4.3;
+float tolerancia = 1.0;
+
 
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
   void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
@@ -778,41 +779,21 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
     if(i2cGyro){
       delay(100);
-        sensors_event_t a, g, temp;
-        mpu.getEvent(&a, &g, &temp);
-        int y=map(a.acceleration.y,0,10,0,70);
-        int x=map(a.acceleration.x,0,10,0,70);
-        int z=map(a.acceleration.z,0,10,0,70);
-        Serial.println(a.acceleration.x);
-        Serial.println(a.acceleration.y);
-        Serial.println(a.acceleration.z);
-        bool cercaX = abs(a.acceleration.x - objetivoX) <= tolerancia;
-        bool cercaY = abs(a.acceleration.y - objetivoY) <= tolerancia;
-        bool cercaZ = abs(a.acceleration.z - objetivoZ) <= tolerancia;
-        
-        /*if (cercaX && cercaY && cercaZ) {
-          if (millis() - tiempoAnterior >= intervaloMovimiento) {
-            anguloActual += incremento;
-            if (anguloActual <= minAngulo || anguloActual >= maxAngulo) {
-              incremento *= -1;
-            }
-            SeverCuna.write(anguloActual);
-            tiempoAnterior = millis();
-          }
-          Serial.print("Movimiento automático. Ángulo: ");
-          Serial.println(anguloActual);
-        } else {
-          Serial.println("Fuera del rango, servo quieto.");
-        }*/
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+      bool enRangoX = a.acceleration.x >= (objetivoX - tolerancia) && a.acceleration.x <= (objetivoX + tolerancia);
+      bool enRangoY = a.acceleration.y >= (objetivoY - tolerancia) && a.acceleration.y <= (objetivoY + tolerancia);
+      bool enRangoZ = a.acceleration.z >= (objetivoZ - tolerancia) && a.acceleration.z <= (objetivoZ + tolerancia);
 
-        SeverCuna.write(((x*y*z)%160)+10);
-        delay(100);
-        SeverCuna.write(10);
-        delay(100);
-        SeverCuna.write(170);
-      }else{
-        SeverCuna.write(90);
+      if (enRangoX && enRangoY && enRangoZ) {
+        if (millis() - tiempoAnterior >= intervaloMovimiento) {
+        anguloActual += incremento;
+      if (anguloActual <= minAngulo || anguloActual >= maxAngulo) {
+        incremento *= -1;
       }
+      servo.write(anguloActual);
+      tiempoAnterior = millis();
+    }
     
     if ((millis() - PreviousTime) > 2000){
       if(InterruptFlag){
