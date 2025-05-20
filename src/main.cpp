@@ -687,6 +687,18 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   int PreviousTime;
   Adafruit_NeoPixel ws2812;
   volatile int Count;
+
+  int anguloActual = 140;
+  int incremento = 3;
+  const int minAngulo = 130;
+  const int maxAngulo = 150;
+  unsigned long intervaloMovimiento = 20;
+  unsigned long tiempoAnterior = 0;
+  float objetivoX = 9.4;
+  float objetivoY = -1.1;
+  float objetivoZ = 2.1;
+  float tolerancia = 0.3;
+
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
   void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
   /*Interrupts*/
@@ -769,11 +781,24 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
         int y=map(a.acceleration.y,0,10,0,70);
         int x=map(a.acceleration.x,0,10,0,70);
         int z=map(a.acceleration.z,0,10,0,70);
-        Serial.println("GyroData");
-        Serial.println(x);
-        Serial.println(y);
-        Serial.println(z);
-        Serial.println(10+x+y+z);
+        bool cercaX = abs(a.acceleration.x - objetivoX) <= tolerancia;
+        bool cercaY = abs(a.acceleration.y - objetivoY) <= tolerancia;
+        bool cercaZ = abs(a.acceleration.z - objetivoZ) <= tolerancia;
+        
+        if (cercaX && cercaY && cercaZ) {
+          if (millis() - tiempoAnterior >= intervaloMovimiento) {
+            anguloActual += incremento;
+            if (anguloActual <= minAngulo || anguloActual >= maxAngulo) {
+              incremento *= -1;
+            }
+            SeverCuna.write(anguloActual);
+            tiempoAnterior = millis();
+          }
+          Serial.print("Movimiento automático. Ángulo: ");
+          Serial.println(anguloActual);
+        } else {
+          Serial.println("Fuera del rango, servo quieto.");
+        }
         SeverCuna.write(10+x+y+z);
       }else{
         SeverCuna.write(90);
