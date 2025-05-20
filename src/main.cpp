@@ -62,6 +62,10 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 
+/*Garage a0:b7:65:2c:b6:6c */
+/*Screen AC:15:18:E6:62:04 */
+/*Roof 88:13:bf:68:b3:d4*/
+
 #if defined SCREEN
 typedef struct gateStruct {
   bool Open;
@@ -208,8 +212,10 @@ void loop(){
     if(DetectedMovement){
       ws2812.fill(0xFFFF);
       DetectedMovement=false;
+      Serial.println("Movement");
     }else{
       ws2812.fill(0x0);
+      Serial.println("No Movement");
     }
       
     ws2812.show();
@@ -360,6 +366,9 @@ if(tft.getTouch(&xTouch,&yTouch)){
             MonitorSetup();         
             break;
             case 11:
+            case 10:
+            case 8:
+
             //Try the Locking Routine
             PassWordSetup();
             break;
@@ -463,21 +472,30 @@ void fillControlMenu(){
   int ii;
   ii=0;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8800);
-  tft.drawCentreString("ON/OFF",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  
   ii=1;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xfdd7);
-  tft.drawCentreString("LOWERSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  
   ii=2;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xbff7);
-  tft.drawCentreString("ADDSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  
 
   ii=9;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
-  tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  
   
   ii=11;
   tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0x8811);
   tft.drawCentreString("LOCK",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);  
+  ii=0;
+  tft.drawCentreString("ON/OFF",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  ii=1;
+  tft.drawCentreString("LOWERSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  ii=2;
+  tft.drawCentreString("ADDSPEED",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+  ii=9;
+  tft.drawCentreString("MONITOR",  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
+
 }
 
 void fillPasswordMenu(){
@@ -488,6 +506,7 @@ void fillPasswordMenu(){
     Serial.println(" Button");
     tft.fillRect(Coordinates[ii][0],Coordinates[ii][1],Coordinates[ii][2],Coordinates[ii][3],0xFFFF);
   }
+  for(int ii=0;ii<12;ii++){
   if(ii<9){
       tft.drawNumber(ii+1,  (Coordinates[ii][0]+Coordinates[ii][2]/2), map((Coordinates[ii][1]+Coordinates[ii][3]/2),0,240,240,0), FONT);
     }else{
@@ -505,6 +524,7 @@ void fillPasswordMenu(){
         break;
       }
     }
+  }
   Serial.println("Finished Internal Call");
 }
 bool inBoundingBox(int ah, int aw,int bh,int bw, int x, int y){
@@ -549,6 +569,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
   gateStruct GateData;
   AccelStepper StepperMotor(1,STEPPIN,DIRPIN);
+  Adafruit_NeoPixel ws2812;
 
   int CurrDistance;
   int Timeout;
@@ -576,7 +597,9 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     
     pinMode(TRIGGERPIN, OUTPUT); // Sets the trigPin as an Output
     pinMode(ECHOPIN, INPUT); // Sets the echoPin as an Input
-    
+    ws2812=Adafruit_NeoPixel(8, NEOPIXELPIN, NEO_GRB + NEO_KHZ800);
+    ws2812.begin();
+
 
     pinMode(BUZZPIN, OUTPUT); // Sets the trigPin as an Output
     StepperMotor.setAcceleration(100);
@@ -660,7 +683,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Servo SeverCuna,SeverCortina;
   Adafruit_BME280 bme;
   Adafruit_MPU6050 mpu;
-  bool i2cGyro, i2ctemper;
+  bool i2cGyro, i2ctemper, InterruptFlag;
   int PreviousTime;
   Adafruit_NeoPixel ws2812;
   volatile int Count;
@@ -725,7 +748,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     pinMode(TACHOPIN, INPUT_PULLUP);
     
     attachInterrupt(LIGHTPIN,LightRise,RISING);
-    attachInterrupt(LIGHTPIN,LightFalls,FALLING);
+    //attachInterrupt(LIGHTPIN,LightFalls,FALLING);
 
   }
 
@@ -734,6 +757,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
         //int temperature=bme.readTemperature();
       digitalWrite(MOSFETPIN,bme.readTemperature()>30);//Change Depending on High-Low Activation, or P-N Gate  
       FanData.Temperature=bme.readTemperature();
+      Serial.println("Temperature Data");
+      Serial.println(bme.readTemperature());
     }else{
       digitalWrite(MOSFETPIN,HIGH);
     }
@@ -744,15 +769,29 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
         int y=map(a.acceleration.y,0,10,0,70);
         int x=map(a.acceleration.x,0,10,0,70);
         int z=map(a.acceleration.z,0,10,0,70);
+        Serial.println("GyroData");
+        Serial.println(x);
+        Serial.println(y);
+        Serial.println(z);
+        Serial.println(10+x+y+z);
         SeverCuna.write(10+x+y+z);
       }else{
         SeverCuna.write(90);
       }
     
-    if ((millis() - PreviousTime) > 200){
+    if ((millis() - PreviousTime) > 2000){
+      if(InterruptFlag){
+        SeverCortina.write(170);
+        ws2812.fill(0x000000);
+        ws2812.show();
+      }else{
+        SeverCortina.write(90);
+        ws2812.fill(0xFFFFFF);
+        ws2812.show();
+      }
       int StartTime=millis();
-      attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v or pullup Input
-      while(Count!=-1);//block
+      //attachInterrupt(TACHOPIN,CountTacho,RISING);//use a PullUp to 3.3v or pullup Input
+      
       StartTime=millis()-StartTime;
       FanData.Frequency=1000.0/StartTime;
       esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &FanData, sizeof(FanData));
@@ -762,6 +801,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       else {
         Serial.println("Error sending the data");
       }
+      InterruptFlag=false;
       PreviousTime=millis();
     }
   }
@@ -775,18 +815,15 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   }
 
   void IRAM_ATTR LightFalls(){
-    SeverCortina.write(10);
-    ws2812.fill(0x0000);
-    ws2812.show();
+    InterruptFlag=false;
   }
 
   void IRAM_ATTR LightRise(){
-    SeverCortina.write(170);
-    ws2812.fill(0xFFFF);
-    ws2812.show();
+    InterruptFlag=true;
   }
 
   void IRAM_ATTR IRRise(){
+    SeverCortina.write(170);
     ws2812.fill(0x0000);
     ws2812.show();
   }
