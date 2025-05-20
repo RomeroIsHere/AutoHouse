@@ -20,7 +20,7 @@
   #define FONT_SIZE 2
   #define FONT 4
 #else
-//#define GARAGE
+#define GARAGE
   #ifdef GARAGE
     //NEMA, Ultrasonico, Beeper
     #include <AccelStepper.h>
