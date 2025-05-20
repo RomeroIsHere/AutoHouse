@@ -31,8 +31,8 @@
     #define DIRPIN 15
     #define ENABLEMOTORPIN 26
     #define BUZZPIN 14
-    #define IRPIN 36 //VP
-    #define NEOPIXELPIN 32
+    #define IRPIN 13 //VP
+    #define NEOPIXELPIN 12
   #else
     #define VENTILATOR
     #ifdef VENTILATOR
