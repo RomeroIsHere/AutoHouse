@@ -9,8 +9,8 @@
   #include <ESP32Servo.h>
   #define RX 26
   #define TX 27
-  #define NEOPIN 16
-  #define MOVEMENTSENSOR 39
+  #define NEOPIN 12
+  #define MOVEMENTSENSOR 34
   #define DOORSERVOPIN 13
   #define TOUCHDOORSWITCH 14
   #define THRESHOLD 30
@@ -120,7 +120,9 @@ esp_now_peer_info_t peerInfo;
 
 uint16_t xTouch, yTouch;
 uint16_t PreviousXTouch, PreviousYTouch;
-bool TouchNow, TouchPrevious, touchedBefore, GarageDoor, DetectedMovement;
+bool TouchNow, TouchPrevious, touchedBefore, GarageDoor;
+volatile bool DetectedMovement;
+volatile int MovementCount;
 
 
 String PasswordInsert="";
@@ -211,8 +213,8 @@ void loop(){
   if ((millis() - PreviousTime) > 2000){
     if(DetectedMovement){
       ws2812.fill(0xFFFF);
-      DetectedMovement=false;
       Serial.println("Movement");
+      DetectedMovement=false;
     }else{
       ws2812.fill(0x0);
       Serial.println("No Movement");
@@ -220,7 +222,7 @@ void loop(){
       
     ws2812.show();
     PreviousTime=millis();
-    Serial.println("Called Show");
+    Serial.println(MovementCount);
   }
   switch(mode){
     case PASSWORDMODE:
@@ -228,10 +230,7 @@ void loop(){
     break;
     case MONITORMODE:
       MonitorScreen();
-    break;
-    case MANUALCONTROLMODE:
-      ManualScreen();
-    break;
+      break;
     default:
     Serial.println("Default Transition");
     PassWordSetup();
@@ -250,7 +249,7 @@ void PassWordScreen(){
           switch(ii){
             case 9:
             //Try the Password
-              if(PasswordInsert.equals("159483726")){
+              if(PasswordInsert.equals("159")){
                 OpenDoor();
                 Serial.println("Opened Door");
                 MonitorSetup();
@@ -314,8 +313,7 @@ if(tft.getTouch(&xTouch,&yTouch)){
           //Then We Do the Stuff tied to ii
           switch(ii){
             case 9:
-            //Try the Other Mode
-            ManualSetup();         
+            //Do nothing, Task Removed
             break;
             case 11:
             //Try the Locking Routine
@@ -402,18 +400,17 @@ void PassWordSetup(){
 
 void MonitorSetup(){
   tft.fillScreen(0xF800);
-mode=MONITORMODE;
+  mode=MONITORMODE;
   fillMonitorMenu();
 }
 void ManualSetup(){
   tft.fillScreen(0xF800);
-  mode=MANUALCONTROLMODE;
-  fillControlMenu();
+    mode=MONITORMODE;
+  fillMonitorMenu();
 }
 
 
 void OpenDoor(){
-  if(GarageDoor){
     gateData.Open=true;
   
   // Send message via ESP-NOW
@@ -425,9 +422,7 @@ void OpenDoor(){
   else {
     Serial.println("Error sending the data");
   }
-  }else{
-    SeverDoor.write(10);
-  }
+  SeverDoor.write(10);
 }
 void CloseDoor(){
     gateData.Open=false;
@@ -452,7 +447,7 @@ void poll(){
 }
 
 void IRAM_ATTR MovementRiseInterrupt(){
-  DetectedMovement=true;
+  DetectedMovement=true;MovementCount++;
 }
 
 void fillMonitorMenu(){
@@ -668,7 +663,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
 #elif defined VENTILATOR
   uint8_t broadcastAddress[] = //{0x8C, 0x4F, 0x00, 0x28, 0x92, 0x64};//8C:4F:00:28:92:64 Microusb
-  {0x88, 0x13, 0xBF, 0x68, 0xB3, 0xD4};
+  {0xAC, 0x15, 0x18, 0xE6, 0x62, 0x04};
   esp_now_peer_info_t peerInfo;
   
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
@@ -677,7 +672,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     double Frequency;
     double Temperature;
   } fasnStruct;
-
+  typedef struct OpenStruct {
+    bool state;
+  } OpenStruct;
+  OpenStruct FanState;
   fasnStruct FanData;
   double Frequency;
   Servo SeverCuna,SeverCortina;
@@ -688,16 +686,16 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Adafruit_NeoPixel ws2812;
   volatile int Count;
 
-  int anguloActual = 140;
-  int incremento = 3;
-  const int minAngulo = 130;
-  const int maxAngulo = 150;
+  int anguloActual = 135;
+  int incremento = 5;
+  const int minAngulo = 100;
+  const int maxAngulo = 170;
   unsigned long intervaloMovimiento = 20;
   unsigned long tiempoAnterior = 0;
-  float objetivoX = 9.4;
-  float objetivoY = -1.1;
-  float objetivoZ = 2.1;
-  float tolerancia = 0.3;
+  float objetivoX = 0.0;
+  float objetivoY = 12.2;
+  float objetivoZ = 17.3;
+  float tolerancia = 0.2;
 
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len);
   void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
@@ -746,6 +744,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       Serial.println("Sensor init failed");
     }else{
     Serial.println("Found a MPU-6050 sensor");
+    mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
     }
     // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
     i2ctemper=bme.begin(0x76);
@@ -765,27 +764,33 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   }
 
   void loop(){
+    
     if(i2ctemper){
         //int temperature=bme.readTemperature();
-      digitalWrite(MOSFETPIN,bme.readTemperature()>30);//Change Depending on High-Low Activation, or P-N Gate  
+      digitalWrite(MOSFETPIN,bme.readTemperature()<26.5^FanState.state);//Change Depending on High-Low Activation, or N Gate  
       FanData.Temperature=bme.readTemperature();
       Serial.println("Temperature Data");
       Serial.println(bme.readTemperature());
+      Serial.println(bme.readTemperature()>26^FanState.state);
     }else{
       digitalWrite(MOSFETPIN,HIGH);
     }
 
     if(i2cGyro){
+      delay(100);
         sensors_event_t a, g, temp;
         mpu.getEvent(&a, &g, &temp);
         int y=map(a.acceleration.y,0,10,0,70);
         int x=map(a.acceleration.x,0,10,0,70);
         int z=map(a.acceleration.z,0,10,0,70);
+        Serial.println(a.acceleration.x);
+        Serial.println(a.acceleration.y);
+        Serial.println(a.acceleration.z);
         bool cercaX = abs(a.acceleration.x - objetivoX) <= tolerancia;
         bool cercaY = abs(a.acceleration.y - objetivoY) <= tolerancia;
         bool cercaZ = abs(a.acceleration.z - objetivoZ) <= tolerancia;
         
-        if (cercaX && cercaY && cercaZ) {
+        /*if (cercaX && cercaY && cercaZ) {
           if (millis() - tiempoAnterior >= intervaloMovimiento) {
             anguloActual += incremento;
             if (anguloActual <= minAngulo || anguloActual >= maxAngulo) {
@@ -798,8 +803,13 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
           Serial.println(anguloActual);
         } else {
           Serial.println("Fuera del rango, servo quieto.");
-        }
-        SeverCuna.write(10+x+y+z);
+        }*/
+
+        SeverCuna.write(((x*y*z)%160)+10);
+        delay(100);
+        SeverCuna.write(10);
+        delay(100);
+        SeverCuna.write(170);
       }else{
         SeverCuna.write(90);
       }
@@ -807,11 +817,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     if ((millis() - PreviousTime) > 2000){
       if(InterruptFlag){
         SeverCortina.write(170);
-        ws2812.fill(0x000000);
+        ws2812.fill(0xFFFFFF);
         ws2812.show();
       }else{
         SeverCortina.write(90);
-        ws2812.fill(0xFFFFFF);
+        ws2812.fill(0x000000);
         ws2812.show();
       }
       int StartTime=millis();
@@ -858,11 +868,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     ws2812.show();
   }
   void OnDataRecieved(const uint8_t * mac, const uint8_t *incomingData, int len) {
-    memcpy(&FanData, incomingData, sizeof(FanData));
+    memcpy(&FanState, incomingData, sizeof(FanState));
     Serial.print("Bytes received: ");
     Serial.println(len);
-    Serial.print("x: ");
-    Serial.println(FanData.Frequency);
+    Serial.print("state: ");
+    Serial.println(FanState.state);
     //digitalWrite(MOSFETPIN,FanData.Frequency);
   }
 
